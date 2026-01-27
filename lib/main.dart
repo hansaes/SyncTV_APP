@@ -476,6 +476,17 @@ class _WatchTogetherHomeScreenState extends State<WatchTogetherHomeScreen> {
                     _showAdminSettingsDialog();
                   },
                 ),
+              if (_isLoggedIn)
+                _buildOptionItem(
+                  icon: Icons.logout,
+                  title: '退出登录',
+                  color: Colors.red,
+                  isDark: isDark,
+                  onTap: () {
+                    Navigator.pop(context);
+                    _handleLogout();
+                  },
+                ),
               const SizedBox(height: 24),
             ],
           ),
@@ -755,6 +766,41 @@ class _WatchTogetherHomeScreenState extends State<WatchTogetherHomeScreen> {
         ),
       ],
     );
+  }
+
+  void _handleLogout() {
+    ChatUtils.showStyledDialog<bool>(
+      context: context,
+      title: '退出登录',
+      icon: const Icon(Icons.logout, color: Colors.red),
+      content: const Text('确定要退出当前账号吗？'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('取消'),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context, true),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('退出'),
+        ),
+      ],
+    ).then((confirm) async {
+      if (confirm == true) {
+        await WatchTogetherService.logout();
+        if (mounted) {
+          setState(() {
+            _isLoggedIn = false;
+            _currentUser = null;
+            _rooms = [];
+          });
+          MessageUtils.showSuccess(context, '已退出登录');
+        }
+      }
+    });
   }
 
   Future<void> _handleJoinRoom(WRoom room) async {
