@@ -354,12 +354,16 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer> with SingleTicker
       setState(() {});
       if (_subtitleItems.isNotEmpty) {
         final position = _isCasting ? _dlnaPosition : widget.controller.value.position;
-        final current = _subtitleItems.firstWhere(
-          (item) => item.start <= position && item.end >= position,
-          orElse: () => _SubtitleItem(Duration.zero, Duration.zero, ''),
-        );
-        if (_currentSubtitle != current.text) {
-          _currentSubtitle = current.text;
+        try {
+          final current = _subtitleItems.firstWhere(
+            (item) => item.start <= position && item.end >= position,
+            orElse: () => _SubtitleItem(Duration.zero, Duration.zero, ''),
+          );
+          if (_currentSubtitle != current.text) {
+            _currentSubtitle = current.text;
+          }
+        } catch (_) {
+          // ignore any lookup errors
         }
       }
     }
@@ -768,6 +772,7 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer> with SingleTicker
   }
 
   void _onHorizontalDragStart(DragStartDetails details) {
+    if (_isCasting) return;
     _isDragging = true;
     _dragStartPosition = widget.controller.value.position;
     _hideTimer?.cancel();
@@ -779,6 +784,7 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer> with SingleTicker
   }
 
   void _onHorizontalDragUpdate(DragUpdateDetails details) {
+    if (_isCasting) return;
     if (_dragStartPosition == null) return;
     
     final duration = widget.controller.value.duration.inMilliseconds.toDouble();
@@ -795,6 +801,7 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer> with SingleTicker
   }
 
   void _onHorizontalDragEnd(DragEndDetails details) {
+    if (_isCasting) return;
     _isDragging = false;
     if (_dragStartPosition != null) {
       widget.controller.seekTo(_dragStartPosition!);
@@ -806,6 +813,7 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer> with SingleTicker
   }
 
   void _onVerticalDragStart(DragStartDetails details) async {
+    if (_isCasting) return;
     final width = MediaQuery.of(context).size.width;
     final isLeft = details.globalPosition.dx < width / 2;
     
@@ -822,19 +830,7 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer> with SingleTicker
         }
       }
     } else {
-      if (_isCasting) {
-        try {
-          final volXml = await _currentDlnaDevice?.getVolume();
-          if (volXml != null) {
-            _dragStartDlnaVolume = VolumeParser(volXml).current.toDouble();
-          }
-        } catch (e) {
-          debugPrint('Failed to get DLNA volume: $e');
-          _dragStartDlnaVolume = 0;
-        }
-      } else {
-        _dragStartVolume = await FlutterVolumeController.getVolume();
-      }
+      _dragStartVolume = await FlutterVolumeController.getVolume();
       setState(() {
         _dragIcon = Icons.volume_up;
         _dragLabel = '音量';
@@ -844,6 +840,7 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer> with SingleTicker
   }
 
   void _onVerticalDragUpdate(DragUpdateDetails details) async {
+    if (_isCasting) return;
     final delta = details.primaryDelta! / -200; // Up is negative, so invert
     
     if (_dragStartBrightness != null) {
@@ -860,19 +857,6 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer> with SingleTicker
           debugPrint('Brightness set error: $e');
         }
       }
-    } else if (_dragStartDlnaVolume != null) {
-      final dlnaDelta = details.primaryDelta! / -2.0; 
-      final newVal = (_dragStartDlnaVolume! + dlnaDelta).clamp(0.0, 100.0);
-      
-      final newInt = newVal.toInt();
-      if (newInt != _dragStartDlnaVolume!.toInt()) {
-         _currentDlnaDevice?.volume(newInt);
-      }
-      _dragStartDlnaVolume = newVal;
-
-      setState(() {
-        _dragLabel = '音量 $newInt%';
-      });
     } else if (_dragStartVolume != null) {
       final newVal = (_dragStartVolume! + delta).clamp(0.0, 1.0);
       await FlutterVolumeController.setVolume(newVal);
@@ -884,6 +868,7 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer> with SingleTicker
   }
 
   void _onVerticalDragEnd(DragEndDetails details) {
+    if (_isCasting) return;
     _dragStartBrightness = null;
     _dragStartVolume = null;
     _dragStartDlnaVolume = null;
@@ -1168,6 +1153,120 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer> with SingleTicker
     );
   }
 
+  void _showDlnaControlPanel() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E2C),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setPanelState) {
+          // Listen to DLNA updates to refresh this panel
+          final subscription = _currentDlnaDevice?.currPosition.stream.listen((_) {
+             if (mounted) setPanelState(() {});
+          });
+          
+          return WillPopScope(
+            onWillPop: () async {
+              subscription?.cancel();
+              return true;
+            },
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _currentDlnaDevice?.info.friendlyName ?? '未知设备',
+                      style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 32),
+                    // Progress
+                    Row(
+                      children: [
+                        Text(_formatDuration(_dlnaPosition), style: const TextStyle(color: Colors.white70)),
+                        Expanded(
+                          child: Slider(
+                            value: _dlnaPosition.inSeconds.toDouble().clamp(0, _dlnaDuration.inSeconds.toDouble()),
+                            min: 0,
+                            max: _dlnaDuration.inSeconds.toDouble() > 0 ? _dlnaDuration.inSeconds.toDouble() : 1.0,
+                            activeColor: const Color(0xFF5D5FEF),
+                            inactiveColor: Colors.white24,
+                            thumbColor: Colors.white,
+                            onChanged: (val) {
+                              final target = Duration(seconds: val.toInt());
+                              _currentDlnaDevice?.seek(_formatDurationDlna(target));
+                              setState(() {
+                                _dlnaPosition = target;
+                              });
+                              setPanelState(() {});
+                            },
+                          ),
+                        ),
+                        Text(_formatDuration(_dlnaDuration), style: const TextStyle(color: Colors.white70)),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    // Controls
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        // Volume Down
+                        IconButton(
+                          icon: const Icon(Icons.volume_down, color: Colors.white),
+                          onPressed: () {
+                             final newVol = ((_dragStartDlnaVolume ?? 0) - 10).clamp(0.0, 100.0);
+                             _dragStartDlnaVolume = newVol;
+                             _currentDlnaDevice?.volume(newVol.toInt());
+                             setPanelState(() {});
+                          },
+                        ),
+                        const SizedBox(width: 24),
+                        // Play/Pause
+                        IconButton(
+                          iconSize: 64,
+                          icon: Icon(
+                            _dlnaIsPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                            color: Colors.white,
+                          ),
+                          onPressed: () {
+                             if (_dlnaIsPlaying) {
+                               _currentDlnaDevice?.pause();
+                             } else {
+                               _currentDlnaDevice?.play();
+                             }
+                             setState(() {
+                               _dlnaIsPlaying = !_dlnaIsPlaying;
+                             });
+                             setPanelState(() {});
+                          },
+                        ),
+                        const SizedBox(width: 24),
+                        // Volume Up
+                        IconButton(
+                          icon: const Icon(Icons.volume_up, color: Colors.white),
+                          onPressed: () {
+                             final newVol = ((_dragStartDlnaVolume ?? 0) + 10).clamp(0.0, 100.0);
+                             _dragStartDlnaVolume = newVol;
+                             _currentDlnaDevice?.volume(newVol.toInt());
+                             setPanelState(() {});
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final videoValue = widget.controller.value;
@@ -1207,19 +1306,67 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer> with SingleTicker
                 color: Colors.black,
                 width: double.infinity,
                 height: double.infinity,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                child: Stack(
                   children: [
-                    const Icon(Icons.cast_connected, color: Colors.white54, size: 80),
-                    const SizedBox(height: 24),
-                    const Text(
-                      '正在投屏中',
-                      style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                    // Top Right Switch Button
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: SafeArea(
+                        child: TextButton.icon(
+                          icon: const Icon(Icons.swap_horiz, color: Colors.white70, size: 18),
+                          label: const Text('切换设备', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                          onPressed: _showDlnaMenu,
+                          style: TextButton.styleFrom(
+                            backgroundColor: Colors.black26,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                          ),
+                        ),
+                      ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _currentDlnaDevice?.info.friendlyName ?? '未知设备',
-                      style: const TextStyle(color: Colors.white70, fontSize: 16),
+                    Center(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.cast_connected, color: Colors.white54, size: 48),
+                            const SizedBox(height: 16),
+                            const Text(
+                              '正在投屏中',
+                              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 4),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 24),
+                              child: Text(
+                                _currentDlnaDevice?.info.friendlyName ?? '未知设备',
+                                style: const TextStyle(color: Colors.white70, fontSize: 14),
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            // Control Button
+                            TextButton.icon(
+                              onPressed: _showDlnaControlPanel,
+                              icon: const Icon(Icons.tune, color: Colors.white, size: 20),
+                              label: const Text('遥控器', style: TextStyle(color: Colors.white, fontSize: 14)),
+                              style: TextButton.styleFrom(
+                                backgroundColor: Colors.white10,
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -1302,6 +1449,7 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer> with SingleTicker
                 ),
               ),
               
+            if (!_isCasting)
             IgnorePointer(
               ignoring: !_showControls,
               child: AnimatedOpacity(
@@ -1383,28 +1531,17 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer> with SingleTicker
                             children: [
                               GestureDetector(
                                 onTap: () {
-                                  if (_isCasting) {
-                                     if (_dlnaIsPlaying) {
-                                       _currentDlnaDevice?.pause();
-                                     } else {
-                                       _currentDlnaDevice?.play();
-                                     }
-                                     setState(() {
-                                       _dlnaIsPlaying = !_dlnaIsPlaying;
-                                     });
-                                  } else {
-                                    videoValue.isPlaying ? widget.controller.pause() : widget.controller.play();
-                                  }
+                                  videoValue.isPlaying ? widget.controller.pause() : widget.controller.play();
                                 },
                                 child: Icon(
-                                  isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                                  videoValue.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
                                   color: Colors.white,
                                   size: 32,
                                 ),
                               ),
                               const SizedBox(width: 8),
                               Text(
-                                _formatDuration(currentPosition),
+                                _formatDuration(videoValue.position),
                                 style: const TextStyle(color: Colors.white, fontSize: 12),
                               ),
                               Expanded(
@@ -1418,25 +1555,21 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer> with SingleTicker
                                     thumbColor: Colors.white,
                                   ),
                                   child: Slider(
-                                    value: currentPosition.inMilliseconds.toDouble().clamp(0, totalDuration.inMilliseconds.toDouble()),
+                                    value: videoValue.position.inMilliseconds.toDouble().clamp(0, videoValue.duration.inMilliseconds.toDouble()),
                                     min: 0,
-                                    max: totalDuration.inMilliseconds.toDouble() > 0 ? totalDuration.inMilliseconds.toDouble() : 1.0,
+                                    max: videoValue.duration.inMilliseconds.toDouble() > 0 ? videoValue.duration.inMilliseconds.toDouble() : 1.0,
                                     onChanged: (value) {
                                       _startHideTimer(); // Reset timer
                                       setState(() {
                                       });
                                       final target = Duration(milliseconds: value.toInt());
-                                      if (_isCasting) {
-                                        _currentDlnaDevice?.seek(_formatDurationDlna(target));
-                                      } else {
-                                        widget.controller.seekTo(target);
-                                      }
+                                      widget.controller.seekTo(target);
                                     },
                                   ),
                                 ),
                               ),
                               Text(
-                                _formatDuration(totalDuration),
+                                _formatDuration(videoValue.duration),
                                 style: const TextStyle(color: Colors.white, fontSize: 12),
                               ),
                               SizedBox(width: widget.isFullScreen ? 8 : 4),

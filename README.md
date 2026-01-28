@@ -20,9 +20,9 @@ SyncTV 是一款跨平台的视频同步观看应用，允许用户创建或加�
 ## Server 端项目介绍
 **Server端作者**：[zijiren233](https://github.com/zijiren233)  |   **APP端作者**：[TOM88812](https://github.com/TOM88812) 
 
-
 **项目地址**：[SyncTV_SERVER](https://github.com/synctv-org/synctv)
 
+**支持的平台** ：Android、IOS、Windows、MacOS、Linux
 ## 📸 预览
 
 | 首页 | 播放界面 |
