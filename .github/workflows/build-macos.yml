@@ -2,15 +2,27 @@ name: Build macOS
 
 on:
   push:
-    branches: [ "main", "master" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-macos:
-    name: Build macOS (APP)
-    runs-on: macos-latest
+    name: Build macOS (${{ matrix.architecture }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x86_64
+            os: macos-13
+          - architecture: arm64
+            os: macos-14
+
     steps:
       - uses: actions/checkout@v4
       
@@ -18,6 +30,7 @@ jobs:
         with:
           channel: 'stable'
           cache: true
+          architecture: ${{ matrix.architecture }}
           
       - name: Enable macOS Desktop
         run: flutter config --enable-macos-desktop
@@ -32,20 +45,20 @@ jobs:
       - name: Compress Build
         run: |
           cd build/macos/Build/Products/Release
-          zip -r ../../../../../Sync-TV-macOS-${{ runner.arch }}-${{ github.ref_name }}.zip synctv_app.app
+          zip -r ../../../../../Sync-TV-macOS-${{ matrix.architecture }}-${{ github.ref_name }}.zip synctv_app.app
           
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: synctv-macos
-          path: Sync-TV-macOS-${{ runner.arch }}-${{ github.ref_name }}.zip
+          name: synctv-macos-${{ matrix.architecture }}
+          path: Sync-TV-macOS-${{ matrix.architecture }}-${{ github.ref_name }}.zip
 
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           generate_release_notes: true
-          files: Sync-TV-macOS-${{ runner.arch }}-${{ github.ref_name }}.zip
+          files: Sync-TV-macOS-${{ matrix.architecture }}-${{ github.ref_name }}.zip
 
 
 
