@@ -14,6 +14,9 @@ void main() async {
   VideoPlayerMediaKit.ensureInitialized(
     android: true,
     iOS: true,
+    windows: true,
+    macOS: true,
+    linux: true,
   );
   runApp(const MyApp());
 }
@@ -86,10 +89,6 @@ class _WatchTogetherHomeScreenState extends State<WatchTogetherHomeScreen> {
   @override
   void initState() {
     super.initState();
-    VideoPlayerMediaKit.ensureInitialized(
-      android: true,
-      iOS: true,
-    );
     _authErrorSubscription = WatchTogetherService.onAuthError.listen((_) {
       if (mounted) {
         // Clear token to ensure UI reflects logged out state if needed

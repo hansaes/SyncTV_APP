@@ -8,6 +8,7 @@ import 'package:flutter_volume_controller/flutter_volume_controller.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:synctv_app/widgets/danmaku_overlay.dart';
 import 'package:synctv_app/models/danmaku_model.dart';
@@ -809,11 +810,17 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer> with SingleTicker
     final isLeft = details.globalPosition.dx < width / 2;
     
     if (isLeft) {
-      _dragStartBrightness = await ScreenBrightness().current;
-      setState(() {
-        _dragIcon = Icons.brightness_6;
-        _dragLabel = '亮度';
-      });
+      if (!Platform.isWindows && !Platform.isLinux && !Platform.isMacOS) {
+        try {
+          _dragStartBrightness = await ScreenBrightness().current;
+          setState(() {
+            _dragIcon = Icons.brightness_6;
+            _dragLabel = '亮度';
+          });
+        } catch (e) {
+          debugPrint('Brightness get error: $e');
+        }
+      }
     } else {
       if (_isCasting) {
         try {
@@ -840,12 +847,19 @@ class _CustomVideoPlayerState extends State<CustomVideoPlayer> with SingleTicker
     final delta = details.primaryDelta! / -200; // Up is negative, so invert
     
     if (_dragStartBrightness != null) {
-      final newVal = (_dragStartBrightness! + delta).clamp(0.0, 1.0);
-      await ScreenBrightness().setScreenBrightness(newVal);
-      _dragStartBrightness = newVal; // accumulate
-      setState(() {
-        _dragLabel = '亮度 ${(newVal * 100).toInt()}%';
-      });
+      // Platform check before setting brightness
+      if (!Platform.isWindows && !Platform.isLinux && !Platform.isMacOS) {
+        final newVal = (_dragStartBrightness! + delta).clamp(0.0, 1.0);
+        try {
+          await ScreenBrightness().setScreenBrightness(newVal);
+          _dragStartBrightness = newVal; // accumulate
+          setState(() {
+            _dragLabel = '亮度 ${(newVal * 100).toInt()}%';
+          });
+        } catch (e) {
+          debugPrint('Brightness set error: $e');
+        }
+      }
     } else if (_dragStartDlnaVolume != null) {
       final dlnaDelta = details.primaryDelta! / -2.0; 
       final newVal = (_dragStartDlnaVolume! + dlnaDelta).clamp(0.0, 100.0);
