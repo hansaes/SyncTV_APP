@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,6 +21,16 @@ class WatchTogetherService {
   
   static final StreamController<void> _authErrorController = StreamController<void>.broadcast();
   static Stream<void> get onAuthError => _authErrorController.stream;
+
+  static bool isConnectionError(Object error) {
+    if (error is SocketException || error is TimeoutException) {
+      return true;
+    }
+    if (error is http.ClientException) {
+      return true;
+    }
+    return false;
+  }
 
   // Initialize service
   static Future<void> init() async {

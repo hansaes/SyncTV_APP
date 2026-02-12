@@ -219,9 +219,37 @@ class _WatchTogetherHomeScreenState extends State<WatchTogetherHomeScreen> {
         setState(() {
           _isLoading = false;
         });
-        MessageUtils.showError(context, '加载房间列表失败: $e');
+        final handled = await _handleConnectionError(e);
+        if (!handled) {
+          MessageUtils.showError(context, '加载房间列表失败: $e');
+        }
       }
     }
+  }
+
+  Future<bool> _handleConnectionError(Object error) async {
+    if (!WatchTogetherService.isConnectionError(error)) {
+      return false;
+    }
+    final confirm = await ChatUtils.showStyledDialog<bool>(
+      context: context,
+      title: '服务器连接失败',
+      icon: const Icon(Icons.cloud_off, color: Colors.red),
+      content: const Text('无法连接主服务器，是否修改后端服务器地址？'),
+      actions: [
+        ChatUtils.createCancelButton(context),
+        const SizedBox(width: 8),
+        ChatUtils.createConfirmButton(
+          context,
+          () => Navigator.pop(context, true),
+          text: '修改',
+        ),
+      ],
+    );
+    if (confirm == true && mounted) {
+      _showServerSettingsDialog();
+    }
+    return true;
   }
 
   void _showLoginDialog() {
@@ -1218,10 +1246,91 @@ class _LoginDialogState extends State<LoginDialog> with SingleTickerProviderStat
         Navigator.pop(context, true);
       }
     } catch (e) {
-      MessageUtils.showError(context, '操作失败: $e');
+      final handled = await _handleConnectionError(e);
+      if (!handled) {
+        MessageUtils.showError(context, '操作失败: $e');
+      }
       setState(() {
         _isLoading = false;
       });
     }
+  }
+
+  Future<bool> _handleConnectionError(Object error) async {
+    if (!WatchTogetherService.isConnectionError(error)) {
+      return false;
+    }
+    final confirm = await ChatUtils.showStyledDialog<bool>(
+      context: context,
+      title: '服务器连接失败',
+      icon: const Icon(Icons.cloud_off, color: Colors.red),
+      content: const Text('无法连接主服务器，是否修改后端服务器地址？'),
+      actions: [
+        ChatUtils.createCancelButton(context),
+        const SizedBox(width: 8),
+        ChatUtils.createConfirmButton(
+          context,
+          () => Navigator.pop(context, true),
+          text: '修改',
+        ),
+      ],
+    );
+    if (confirm == true && mounted) {
+      _showServerSettingsDialog();
+    }
+    return true;
+  }
+
+  void _showServerSettingsDialog() {
+    final controller = TextEditingController(text: WatchTogetherService.baseUrl);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : Colors.black87;
+
+    ChatUtils.showStyledDialog(
+      context: context,
+      title: '服务器设置',
+      icon: const Icon(Icons.dns_rounded, color: Color(0xFF5D5FEF)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: controller,
+            style: TextStyle(color: textColor),
+            decoration: const InputDecoration(
+              labelText: '服务器地址',
+              hintText: '例如: https://tv.test.com/api',
+              labelStyle: TextStyle(color: Colors.grey),
+              prefixIcon: Icon(Icons.link, color: Colors.grey),
+              enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
+              focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF5D5FEF))),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '修改后可能需要重新登录',
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+          ),
+        ],
+      ),
+      actions: [
+        ChatUtils.createCancelButton(context),
+        const SizedBox(width: 8),
+        ChatUtils.createConfirmButton(
+          context,
+          () async {
+            if (controller.text.isEmpty) {
+              MessageUtils.showWarning(context, '请输入服务器地址');
+              return;
+            }
+            await WatchTogetherService.setBaseUrl(controller.text);
+            if (mounted) {
+              Navigator.pop(context);
+              MessageUtils.showSuccess(context, '服务器地址已更新');
+            }
+          },
+          text: '保存',
+        ),
+      ],
+    );
   }
 }
