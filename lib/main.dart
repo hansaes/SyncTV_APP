@@ -135,6 +135,7 @@ class _WatchTogetherHomeScreenState extends State<WatchTogetherHomeScreen> {
         _showLoginDialog();
       }
     });
+    _checkServerOnStartup();
     _checkLoginAndLoadData();
   }
 
@@ -1253,6 +1254,41 @@ class _LoginDialogState extends State<LoginDialog> with SingleTickerProviderStat
       setState(() {
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _checkServerOnStartup() async {
+    final promptedBaseUrl = await WatchTogetherService.getStartupPromptedBaseUrl();
+    if (promptedBaseUrl == WatchTogetherService.baseUrl) {
+      return;
+    }
+    final reachable = await WatchTogetherService.checkServerReachable();
+    if (!reachable && mounted) {
+      await _showServerConnectionFailedDialog();
+      await WatchTogetherService.setStartupPromptedBaseUrl(WatchTogetherService.baseUrl);
+    } else if (reachable) {
+      await WatchTogetherService.clearStartupPromptedBaseUrl();
+    }
+  }
+
+  Future<void> _showServerConnectionFailedDialog() async {
+    final confirm = await ChatUtils.showStyledDialog<bool>(
+      context: context,
+      title: '服务器连接失败',
+      icon: const Icon(Icons.cloud_off, color: Colors.red),
+      content: const Text('无法连接主服务器，是否修改后端服务器地址？'),
+      actions: [
+        ChatUtils.createCancelButton(context),
+        const SizedBox(width: 8),
+        ChatUtils.createConfirmButton(
+          context,
+          () => Navigator.pop(context, true),
+          text: '修改',
+        ),
+      ],
+    );
+    if (confirm == true && mounted) {
+      _showServerSettingsDialog();
     }
   }
 

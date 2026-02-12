@@ -18,6 +18,7 @@ class WatchTogetherService {
   static String get baseUrl => _baseUrl;
   static const String _tokenKey = 'synctv_token';
   static const String _baseUrlKey = 'synctv_base_url';
+  static const String _startupPromptedBaseUrlKey = 'synctv_startup_prompted_base_url';
   
   static final StreamController<void> _authErrorController = StreamController<void>.broadcast();
   static Stream<void> get onAuthError => _authErrorController.stream;
@@ -30,6 +31,22 @@ class WatchTogetherService {
       return true;
     }
     return false;
+  }
+
+  static Future<bool> checkServerReachable({Duration timeout = const Duration(seconds: 5)}) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/user/me'),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(timeout);
+      if (response.statusCode == 401) {
+        // Unauthorized still means server is reachable.
+        return true;
+      }
+      return response.statusCode >= 200 && response.statusCode < 500;
+    } catch (e) {
+      return false;
+    }
   }
 
   // Initialize service
@@ -54,6 +71,22 @@ class WatchTogetherService {
     _baseUrl = url;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_baseUrlKey, url);
+    await prefs.remove(_startupPromptedBaseUrlKey);
+  }
+
+  static Future<String?> getStartupPromptedBaseUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_startupPromptedBaseUrlKey);
+  }
+
+  static Future<void> setStartupPromptedBaseUrl(String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_startupPromptedBaseUrlKey, url);
+  }
+
+  static Future<void> clearStartupPromptedBaseUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_startupPromptedBaseUrlKey);
   }
 
   static void _checkResponse(http.Response response) {
